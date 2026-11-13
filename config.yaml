@@ -1,0 +1,44 @@
+# Cycle or train — your settings. Edit this file, commit, and the next run uses it.
+
+# Where you ride from and to. Coordinates: right-click a spot in Google Maps to copy them.
+home:
+  name: Haarlem
+  lat: 52.3874
+  lon: 4.6462
+work:
+  name: Amsterdam Centraal      # the ferry to NDSM is the same either way, so this leg decides
+  lat: 52.3791
+  lon: 4.9003
+
+# Train alternative. Station codes: HLM = Haarlem, ASD = Amsterdam Centraal,
+# ASS = Amsterdam Sloterdijk, ASDZ = Amsterdam Zuid. Full list: NS "stations" API.
+train:
+  from_station: HLM
+  to_station: ASD
+
+commute:
+  leave_morning: "07:00"
+  leave_evening: "17:30"
+  ride_minutes: 60          # how long the ride takes, used as the weather window
+  workdays: [mon, tue, wed, thu, fri]
+
+# Limits. Breaking any one of these on either trip means TRAIN.
+rules:
+  max_rain_mm_per_hour: 0.2     # "rain makes it train": anything above drizzle. 0.5 = light rain, 2+ = proper rain
+  max_rain_mm_per_trip: 0.3
+  max_headwind_kmh: 25          # sustained wind against you (10 m forecast height)
+  max_gusts_kmh: 60
+  storm_gusts_kmh: 75           # STORM screen: suggests working from home (trains/ferry often disrupted)
+  min_feels_like_c: -3
+  ice_below_c: 1.0              # any precipitation at or below this = ice risk
+
+display:
+  # Optional line under the big word, e.g. "BIKE › FERRY › BIKE". Off by default.
+  # route_ride: ""
+  # route_train: ""
+  rotate_180: false             # flip if the image shows upside down on the device
+  dutch_word: true              # show the Dutch word for the day's weather
+  timezone: Europe/Amsterdam
+
+forecast:
+  model: knmi_seamless          # KNMI's Harmonie model; 'best_match' also works

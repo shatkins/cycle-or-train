@@ -1,0 +1,54 @@
+name: Publish dashboard
+
+# The device wakes at 04:00 and 18:00 Amsterdam time. GitHub's scheduler is
+# best-effort and often late, so we try several times beforehand; each run simply
+# overwrites the last. Cron is UTC: these cover both CET (UTC+1) and CEST (UTC+2).
+on:
+  schedule:
+    - cron: "7 1 * * *"
+    - cron: "37 1 * * *"
+    - cron: "7 2 * * *"
+    - cron: "37 2 * * *"
+    - cron: "7 15 * * *"
+    - cron: "37 15 * * *"
+    - cron: "7 16 * * *"
+    - cron: "37 16 * * *"
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Build dashboard
+        env:
+          NS_API_KEY: ${{ secrets.NS_API_KEY }}
+        run: python build.py --out site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

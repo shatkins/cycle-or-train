@@ -1,0 +1,7 @@
+site/
+__pycache__/
+firmware/.pio/
+firmware/include/secrets.h
+samples.png
+.venv/
+.venv/
