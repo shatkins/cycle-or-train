@@ -34,14 +34,16 @@ def main() -> int:
 
     raw = json.loads(Path(args.fixture).read_text(encoding="utf-8")) if args.fixture else weather.fetch(cfg)
     raw = raw if isinstance(raw, list) else [raw]
-    hourly = weather.merge_hourly(raw)  # worst of home + work, for the commute
+    areas = {a["name"]: weather.merge_hourly([loc]) for a, loc in zip(weather.bike_areas(cfg), raw[1:])}
+    hourly = weather.merge_hourly(raw[1:])  # worst case across all bike areas
 
     day, is_weekend = decide.screen_day(cfg, now)
     if is_weekend:
         d = decide.weekend(cfg, weather.merge_hourly(raw[:1]), now, day)  # home only
     else:
         ns_check = None if (args.no_ns or args.fixture) else (lambda t, reverse=False: ns.check(cfg, t, reverse=reverse))
-        d = decide.decide(cfg, hourly, now, ns_check, day=day)
+        chances = None if args.fixture else weather.rain_chance(cfg)
+        d = decide.decide(cfg, hourly, now, ns_check, day=day, areas=areas, chances=chances)
     if not cfg["display"].get("dutch_word", True):
         d["word"] = None
 

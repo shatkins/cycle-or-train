@@ -7,17 +7,18 @@ from __future__ import annotations
 
 import math
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
-SS = 4  # supersampling factor
+SS = 2       # supersampling factor
+BASE = 400   # icons are drawn this many pixels tall, then trimmed and scaled to fit
 
 
 class Pen:
     """Draws on a 100-unit grid scaled to `size` pixels."""
 
-    def __init__(self, size: int, stroke: float = 5):
+    def __init__(self, size: int = BASE, stroke: float = 5, width_units: float = 100):
         self.k = size * SS / 100
-        self.img = Image.new("L", (size * SS, size * SS), 255)
+        self.img = Image.new("L", (round(width_units * self.k), size * SS), 255)
         self.d = ImageDraw.Draw(self.img)
         self.w = max(1, round(stroke * self.k))
 
@@ -47,8 +48,13 @@ class Pen:
     def poly(self, *pts, fill=True):
         self.d.polygon([self.p(*q) for q in pts], fill=0 if fill else None, outline=0)
 
-    def done(self, size: int) -> Image.Image:
-        return self.img.resize((size, size), Image.LANCZOS)
+    def done(self, size: int = BASE) -> Image.Image:
+        """Trim the empty margin around the drawing (plus a hair of padding)."""
+        box = ImageOps.invert(self.img).getbbox() or (0, 0, *self.img.size)
+        pad = round(2 * self.k)
+        x0, y0, x1, y1 = box
+        return self.img.crop((max(0, x0 - pad), max(0, y0 - pad),
+                              min(self.img.width, x1 + pad), min(self.img.height, y1 + pad)))
 
 
 # ---- building blocks ----------------------------------------------------------
@@ -86,7 +92,7 @@ def _drops(pen: Pen, xs, y0=80, length=10, slant=-4):
 
 # ---- icons ----------------------------------------------------------------------
 
-def bicycle(size: int) -> Image.Image:
+def bicycle(size: int = BASE) -> Image.Image:
     pen = Pen(size, stroke=4.5)
     rear, front, r = (24, 64), (76, 64), 18
     pen.circle(*rear, r)
@@ -105,21 +111,59 @@ def bicycle(size: int) -> Image.Image:
     return pen.done(size)
 
 
-def train(size: int) -> Image.Image:
-    pen = Pen(size, stroke=4.5)
-    # side view of a double-deck commuter coach heading right
-    pen.d.rounded_rectangle([*pen.p(8, 24), *pen.p(92, 72)], radius=12 * pen.k, outline=0, width=pen.w)
-    for row_y in (32, 50):                           # two decks of windows
-        for x in range(16, 70, 14):
-            pen.rrect(x, row_y, x + 10, row_y + 9, 2, fill=True)
-    pen.rrect(76, 44, 88, 58, 3, fill=True)          # cab window
-    for x in (22, 36, 64, 78):                       # wheels
-        pen.circle(x, 76, 5, fill=True)
-    pen.line((2, 84), (98, 84), w=3.5)               # rail
+def train(size: int = BASE) -> Image.Image:
+    """A long double-deck commuter train: cab on the right, three coaches behind."""
+    pen = Pen(size, stroke=4.5, width_units=420)
+    top, bottom = 22, 72
+    # coaches (left to right), each 96 units long with a small gap
+    for i, x0 in enumerate((6, 108, 210)):
+        x1 = x0 + 96
+        pen.rrect(x0, top, x1, bottom, 8)
+        for row_y in (31, 49):                       # two decks of windows
+            for wx in range(x0 + 9, x1 - 12, 15):
+                pen.rrect(wx, row_y, wx + 10, row_y + 9, 2, fill=True)
+        for wx in (x0 + 16, x0 + 30, x1 - 30, x1 - 16):
+            pen.circle(wx, 77, 5, fill=True)
+        if i < 2:
+            pen.line((x1, 50), (x1 + 6, 50), w=4)     # coupling
+    # cab with a sloping nose
+    x0 = 312
+    pen.d.polygon([pen.p(x0, top), pen.p(392, top), pen.p(414, 48), pen.p(414, bottom), pen.p(x0, bottom)],
+                  outline=0, width=pen.w)
+    pen.line((x0, top), (392, top), (414, 48), (414, bottom), (x0, bottom), (x0, top))
+    pen.d.polygon([pen.p(372, 30), pen.p(390, 30), pen.p(406, 50), pen.p(372, 50)], fill=0)  # windscreen
+    for row_y in (31, 49):
+        for wx in (321, 336, 351):
+            pen.rrect(wx, row_y, wx + 10, row_y + 9, 2, fill=True)
+    pen.circle(406, 62, 3.5, fill=True)              # headlight
+    for wx in (328, 344, 382, 398):
+        pen.circle(wx, 77, 5, fill=True)
+    pen.line((0, 86), (420, 86), w=3.5)              # rail
     return pen.done(size)
 
 
-def house(size: int) -> Image.Image:
+def bus(size: int = BASE) -> Image.Image:
+    """A long city bus seen from the side, heading right."""
+    pen = Pen(size, stroke=4.5, width_units=330)
+    top, bottom = 18, 74
+    pen.rrect(6, top, 322, bottom, 10)                         # body
+    pen.line((6, 62), (322, 62), w=3)                          # skirt line
+    pen.d.polygon([pen.p(292, 26), pen.p(314, 26), pen.p(318, 50), pen.p(292, 50)], fill=0)  # windscreen
+    for x in (20, 50, 80, 158, 188, 218):                      # side windows, gaps for the doors
+        pen.rrect(x, 26, x + 24, 46, 3, fill=True)
+    for x0 in (252, 118):                                      # doors (two panels each)
+        pen.rrect(x0, 26, x0 + 30, 72, 2)
+        pen.line((x0 + 15, 26), (x0 + 15, 72), w=3)
+    pen.line((6, 12), (40, 12), w=3)                           # roof unit
+    pen.circle(316, 66, 3, fill=True)                          # headlight
+    for x in (64, 270):                                        # wheels with hubs
+        pen.disc(x, 76, 13)
+        pen.disc(x, 76, 5, colour=255)
+    pen.line((0, 90), (330, 90), w=3)                          # road
+    return pen.done(size)
+
+
+def house(size: int = BASE) -> Image.Image:
     pen = Pen(size, stroke=4.5)
     pen.line((14, 48), (50, 18), (86, 48))
     pen.line((24, 40), (24, 82), (76, 82), (76, 40))
@@ -128,19 +172,19 @@ def house(size: int) -> Image.Image:
     return pen.done(size)
 
 
-def sun(size: int) -> Image.Image:
+def sun(size: int = BASE) -> Image.Image:
     pen = Pen(size, stroke=4.5)
     _sun(pen, 50, 50, 18, rays=12)
     return pen.done(size)
 
 
-def cloud(size: int) -> Image.Image:
+def cloud(size: int = BASE) -> Image.Image:
     pen = Pen(size, stroke=4.5)
     _cloud(pen, 0, 4)
     return pen.done(size)
 
 
-def showers(size: int) -> Image.Image:
+def showers(size: int = BASE) -> Image.Image:
     pen = Pen(size, stroke=4.5)
     _sun(pen, 64, 30, 12, rays=8)
     _cloud(pen, -6, 0, 0.95)
@@ -148,14 +192,14 @@ def showers(size: int) -> Image.Image:
     return pen.done(size)
 
 
-def rain(size: int) -> Image.Image:
+def rain(size: int = BASE) -> Image.Image:
     pen = Pen(size, stroke=4.5)
     _cloud(pen, 0, -6)
     _drops(pen, [24, 36, 48, 60, 72], y0=74, length=12)
     return pen.done(size)
 
 
-def wind(size: int) -> Image.Image:
+def wind(size: int = BASE) -> Image.Image:
     pen = Pen(size, stroke=4.5)
     _cloud(pen, 6, -14, 0.8)
     # three gust lines, with a hook on the longest
@@ -166,12 +210,10 @@ def wind(size: int) -> Image.Image:
 
 
 ICONS = {
-    # commute
-    "CYCLE": bicycle,
-    "TRAIN": train,
-    "TOO WINDY": train,
+    # commute: the leg from NDSM to the studio
+    "BIKE": bicycle,
+    "BUS": bus,
     "STORM": wind,
-    "YOUR CALL": house,
     # weekend
     "DRY": sun,
     "SHOWERS": showers,
@@ -179,8 +221,11 @@ ICONS = {
 }
 
 
-def for_verdict(verdict: str, size: int, cloudy: bool = False) -> Image.Image | None:
-    if verdict == "DRY" and cloudy:
-        return cloud(size)
-    fn = ICONS.get(verdict)
-    return fn(size) if fn else None
+def for_verdict(verdict: str, max_w: int, max_h: int, cloudy: bool = False) -> Image.Image | None:
+    """The verdict's picture, scaled as large as fits in max_w x max_h."""
+    fn = cloud if (verdict == "DRY" and cloudy) else ICONS.get(verdict)
+    if fn is None:
+        return None
+    art = fn()
+    scale = min(max_w / art.width, max_h / art.height)
+    return art.resize((max(1, round(art.width * scale)), max(1, round(art.height * scale))), Image.LANCZOS)

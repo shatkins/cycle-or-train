@@ -19,13 +19,56 @@ def run(fixture, now):
     return decide.decide(CFG, weather.merge_hourly(raw), dt.datetime.fromisoformat(now))
 
 
-def test_dry_day_is_cycle():
-    assert run("dry_westerly", "2026-11-16T04:05")["verdict"] == "CYCLE"
+def test_dry_day_is_bike():
+    assert run("dry_westerly", "2026-11-16T04:05")["verdict"] == "BIKE"
 
 
-def test_evening_rain_is_train():
+def test_evening_rain_is_bus():
     d = run("rainy_evening", "2026-11-16T04:05")
-    assert d["verdict"] == "TRAIN" and "rain" in d["trips"][1]["flags"]
+    assert d["verdict"] == "BUS" and "rain" in d["trips"][1]["flags"]
+
+
+def test_wind_alone_does_not_matter():
+    assert run("windy_dry", "2026-11-16T04:05")["verdict"] == "BIKE"
+
+
+def test_any_rain_at_all_is_bus():
+    raw = json.loads((ROOT / "tests/fixtures/dry_westerly.json").read_text(encoding="utf-8"))
+    for loc in raw:
+        h = loc["hourly"]
+        h["precipitation"][h["time"].index("2026-11-16T08:00")] = 0.1  # a single light drizzle hour
+    d = decide.decide(CFG, weather.merge_hourly(raw), dt.datetime(2026, 11, 16, 4, 5))
+    assert d["verdict"] == "BUS"
+
+
+def test_rain_only_at_halfweg_is_bus_and_says_where():
+    dry = json.loads((ROOT / "tests/fixtures/dry_westerly.json").read_text(encoding="utf-8"))[0]
+    wet = json.loads(json.dumps(dry))
+    h = wet["hourly"]
+    h["precipitation"][h["time"].index("2026-11-16T08:00")] = 0.4
+    areas = {"NDSM": weather.merge_hourly([dry]), "Halfweg": weather.merge_hourly([wet])}
+    d = decide.decide(CFG, weather.merge_hourly([dry, wet]), dt.datetime(2026, 11, 16, 4, 5), areas=areas)
+    assert d["verdict"] == "BUS" and "Halfweg" in d["reason"] and "NDSM" not in d["reason"]
+
+
+def test_chance_of_rain_from_ensemble_members():
+    hourly = {"time": ["2026-11-16T08:00", "2026-11-16T09:00"],
+              "precipitation": [0.0, 0.5],
+              "precipitation_member01": [0.2, 0.0],
+              "precipitation_member02": [0.0, 0.3],
+              "precipitation_member03": [0.0, 0.0]}
+    ch = weather.chances_from_members(hourly)
+    assert ch[dt.datetime(2026, 11, 16, 8)] == 25 and ch[dt.datetime(2026, 11, 16, 9)] == 50
+    # ride 07:45-08:05 overlaps the hours ending 08:00 and 09:00 -> highest is 50%
+    assert decide.chance_in_window(ch, dt.datetime(2026, 11, 16, 7, 45), 20) == 50
+    raw = json.loads((ROOT / "tests/fixtures/dry_westerly.json").read_text(encoding="utf-8"))
+    d = decide.decide(CFG, weather.merge_hourly(raw), dt.datetime(2026, 11, 16, 4, 5),
+                      chances={"NDSM": ch, "Halfweg": ch})
+    assert d["chances"][0] == {"place": "NDSM", "in": 50, "back": None}
+
+
+def test_big_gusts_are_storm():
+    assert run("storm", "2026-11-16T04:05")["verdict"] == "STORM"
 
 
 def test_afternoon_run_reports_tomorrow():
@@ -71,24 +114,6 @@ def test_weekend_dry_and_rainy():
             h["precipitation"][i] = 0.6  # a two-hour shower
     showers = decide.weekend(CFG, weather.merge_hourly(raw), now, dt.date(2026, 11, 21))
     assert showers["verdict"] == "SHOWERS" and "13:00–15:00" in showers["reason"]
-
-
-def test_dry_but_windy_is_too_windy():
-    assert run("windy_dry", "2026-11-16T04:05")["verdict"] == "TOO WINDY"
-
-
-def test_wind_plus_rain_stays_train():
-    assert run("stormy", "2026-11-16T04:05")["verdict"] == "TRAIN"
-
-
-def test_big_gusts_are_storm():
-    assert run("storm", "2026-11-16T04:05")["verdict"] == "STORM"
-
-
-def test_headwind_sign():
-    # Haarlem -> Amsterdam heads east; an east wind is a headwind.
-    assert decide.headwind(20, 90, decide.bearing(CFG["home"], CFG["work"])) > 19
-    assert decide.headwind(20, 270, decide.bearing(CFG["home"], CFG["work"])) < -19
 
 
 if __name__ == "__main__":

@@ -147,20 +147,16 @@ Everything lives in `config.yaml`. Edit it, push, and the next run uses it.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `max_rain_mm_per_hour` | 0.2 | Above drizzle = train ("rain makes it train") |
-| `max_headwind_kmh` | 25 | Wind *against you*, worked out from the route direction |
-| `max_gusts_kmh` | 60 | |
-| `storm_gusts_kmh` | 75 | Gusts at or above this show **STORM** (stay home?), whatever else is going on |
-| `min_feels_like_c` | -3 | |
-| `ice_below_c` | 1 | Any precipitation at or below this = ice risk |
-| `leave_evening` | 17:30 | **Set this to your real time** |
-| `route_ride` / `route_train` | off | Optional line under the big word |
-| `weekend_screen` | true | Non-commute days show DRY / SHOWERS / RAIN for home instead of RIDE / TRAIN |
+| `work` | NDSM | Where the bike leg starts; its forecast decides BIKE or BUS |
+| `rain_from_mm` | 0.1 | Any rain at or above this (mm/h) during either ride = **BUS** |
+| `storm_gusts_kmh` | 75 | Gusts at or above this show **STORM** (stay home?) |
+| `leave_morning` / `leave_evening` | 07:00 / 17:30 | Leaving home / leaving the studio |
+| `bike_leg_after_minutes` | 45 | From leaving home to getting on the bike at NDSM |
+| `bike_minutes` | 20 | Length of the NDSM ↔ studio ride (the weather window) |
+| `weekend_screen` | true | Non-commute days show DRY / SHOWERS / RAIN for home instead |
 | `weekend_hours` | [8, 20] | The hours the weekend screen looks at |
 
-Screens: **RIDE**, **TRAIN** (rain, cold or ice), **TRAIN + TOO WINDY** (dry, but wind breaks a limit), **STORM**, **YOUR CALL** (train weather, but the trains are disrupted) and **NO DATA**.
-
-How the rules work: the morning window is 07:00 to 08:00. The forecast is checked at both Haarlem and Centraal, and the worse value counts. Wind is split into the part blowing against your direction of travel. The ferry to NDSM is the same either way, so it isn't part of the decision.
+Screens: **BIKE** (completely dry at NDSM for both rides), **BUS** (any rain), **STORM**, **NO DATA**, and on weekends **DRY / SHOWERS / RAIN** for Haarlem. You take the train every day, so with an NS key its status just shows in the corner.
 
 ## Ideas for next steps
 
