@@ -8,6 +8,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from . import icons
+
 W, H = 800, 480
 FONTS = Path(__file__).resolve().parent.parent / "fonts"
 BLACK, WHITE = 0, 255
@@ -216,6 +218,21 @@ def footer(draw, d):
         draw.text((W - 28, 458 - i * 20), line, font=sm, fill=BLACK, anchor="ra")
 
 
+def place_icon(img, verdict, y_top, cloudy=False, x_right=470, y_bottom=376, max_size=170):
+    """Put the illustration in the free space bottom-right of the left column."""
+    size = min(max_size, y_bottom - y_top)
+    if size < 60:
+        return
+    ic = icons.for_verdict(verdict, size, cloudy)
+    if ic is not None:
+        img.paste(ic, (x_right - size, y_bottom - size), ImageChops_mask(ic))
+
+
+def ImageChops_mask(ic):
+    # paste only the black strokes so nothing underneath gets whited out
+    return ic.point(lambda v: 255 - v)
+
+
 def finish(img, rotate_180):
     out = img.point(lambda v: 255 if v > 140 else 0).convert("1", dither=Image.Dither.NONE)
     return out.rotate(180) if rotate_180 else out
@@ -244,6 +261,8 @@ def render_weekend(d: dict, rotate_180: bool = False) -> Image.Image:
         y += 28
 
     s = d.get("summary")
+    cloudy = bool(d.get("word")) and d["word"]["en"] in ("overcast", "fog", "partly cloudy")
+    place_icon(img, d["verdict"], y + 8, cloudy=cloudy)
     x0, x1, top, h, gap = 496, 772, 60, 106, 10
     if s:
         wet = s["rain_hours"] > 0
@@ -305,6 +324,8 @@ def render(d: dict, rotate_180: bool = False, legs: dict | None = None) -> Image
     for line in wrap(draw, d["reason"], reason, left_w, max_lines=2):
         draw.text((30, y), line, font=reason, fill=BLACK)
         y += 28
+
+    place_icon(img, d["verdict"], y + 8)
 
     # Right: three big tiles
     s = summarise(d["trips"])
