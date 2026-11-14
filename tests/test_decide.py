@@ -32,8 +32,45 @@ def test_afternoon_run_reports_tomorrow():
     assert run("dry_westerly", "2026-11-16T17:35")["when"] == "Tomorrow"
 
 
-def test_friday_evening_skips_to_monday():
-    assert dt.date.fromisoformat(run("dry_westerly", "2026-11-20T17:35")["date"]).weekday() == 0
+def test_friday_evening_skips_to_monday_on_weekday_schedule():
+    weekdays = ["mon", "tue", "wed", "thu", "fri"]
+    assert decide.target_day(dt.datetime(2026, 11, 20, 17, 35), weekdays).weekday() == 0
+
+
+def shifted(fixture, days):
+    """Load a fixture and move every timestamp `days` later (to land on a weekend)."""
+    raw = json.loads((ROOT / "tests/fixtures" / f"{fixture}.json").read_text(encoding="utf-8"))
+    for loc in raw:
+        loc["hourly"]["time"] = [
+            (dt.datetime.fromisoformat(t) + dt.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M")
+            for t in loc["hourly"]["time"]
+        ]
+    return raw
+
+
+def test_friday_evening_shows_saturday_weekend_screen():
+    day, is_weekend = decide.screen_day(CFG, dt.datetime(2026, 11, 20, 17, 35))
+    assert day.weekday() == 5 and is_weekend
+
+
+def test_sunday_evening_shows_monday_commute():
+    day, is_weekend = decide.screen_day(CFG, dt.datetime(2026, 11, 22, 17, 35))
+    assert day.weekday() == 0 and not is_weekend
+
+
+def test_weekend_dry_and_rainy():
+    now = dt.datetime(2026, 11, 20, 17, 35)  # Friday evening -> Saturday 21st
+    dry = decide.weekend(CFG, weather.merge_hourly(shifted("dry_westerly", 5)[:1]), now, dt.date(2026, 11, 21))
+    assert dry["verdict"] == "DRY" and dry["mode"] == "weekend"
+    wet = decide.weekend(CFG, weather.merge_hourly(shifted("storm", 5)[:1]), now, dt.date(2026, 11, 21))
+    assert wet["verdict"] == "RAIN" and wet["summary"]["rain_mm"] > 5
+    raw = shifted("dry_westerly", 5)[:1]
+    h = raw[0]["hourly"]
+    for i, t in enumerate(h["time"]):
+        if t in ("2026-11-21T14:00", "2026-11-21T15:00"):
+            h["precipitation"][i] = 0.6  # a two-hour shower
+    showers = decide.weekend(CFG, weather.merge_hourly(raw), now, dt.date(2026, 11, 21))
+    assert showers["verdict"] == "SHOWERS" and "13:00–15:00" in showers["reason"]
 
 
 def test_dry_but_windy_is_too_windy():

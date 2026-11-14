@@ -153,10 +153,10 @@ QUIPS = {
 }
 
 
-def decide(cfg: dict, hourly: dict, now: dt.datetime, ns_check=None) -> dict:
+def decide(cfg: dict, hourly: dict, now: dt.datetime, ns_check=None, day: dt.date | None = None) -> dict:
     tz = ZoneInfo(cfg["display"]["timezone"])
     rules, com = cfg["rules"], cfg["commute"]
-    day = target_day(now, com["workdays"])
+    day = day or target_day(now, com["workdays"])
     out_heading = bearing(cfg["home"], cfg["work"])
 
     def at(hhmm: str) -> dt.datetime:
@@ -253,3 +253,73 @@ def _reason(verdict: str, trips: list[dict], ns: dict) -> str:
     if worst.get("headwind_kmh", 0) >= 12:
         return f"{sky}, but {worst['headwind_kmh']} km/h headwind on the way {worst['name'].lower()}"
     return f"{sky} both ways, light wind"
+
+
+# ---- Weekend: no commute, just "will it rain at home today?" -------------------
+
+def screen_day(cfg: dict, now: dt.datetime) -> tuple[dt.date, bool]:
+    """Which day to show, and whether it's a weekend (non-commute) day."""
+    workdays = cfg["commute"]["workdays"]
+    if cfg["display"].get("weekend_screen", True):
+        day = target_day(now, DAYS)  # every day gets a screen
+    else:
+        day = target_day(now, workdays)
+    return day, DAYS[day.weekday()] not in workdays
+
+
+def weekend(cfg: dict, hourly_home: dict, now: dt.datetime, day: dt.date) -> dict:
+    """Daytime rain outlook for the home location only."""
+    w = cfg["display"].get("weekend_hours", [8, 20])
+    rows = [(t, r) for t, r in sorted(hourly_home.items()) if t.date() == day and w[0] < t.hour <= w[1]]
+    lead = (day - now.date()).days
+    when = "Today" if lead == 0 else "Tomorrow" if lead == 1 else day.strftime("%A")
+    base = {
+        "mode": "weekend",
+        "generated": now.isoformat(timespec="minutes"),
+        "date": day.isoformat(),
+        "when": when,
+        "place": cfg["home"]["name"],
+        "lead_days": lead,
+        "ns": {"ok": None, "note": ""},
+        "trips": [],
+        "strip": [
+            {"hour": t.hour, "mm": r["precipitation"] or 0}
+            for t, r in sorted(hourly_home.items())
+            if t.date() == day and 6 <= t.hour <= 21
+        ],
+    }
+    if not rows:
+        return base | {"verdict": "NO DATA", "reason": "The forecast doesn't reach that far yet",
+                       "word": None, "summary": None}
+
+    wet = [(t, r["precipitation"] or 0) for t, r in rows if (r["precipitation"] or 0) >= 0.1]
+    total = sum((r["precipitation"] or 0) for _, r in rows)
+    if not wet:
+        verdict, reason = "DRY", f"No rain in {cfg['home']['name']} between {w[0]:02d}:00 and {w[1]:02d}:00"
+    else:
+        first, last = wet[0][0], wet[-1][0]
+        span = f"{(first - dt.timedelta(hours=1)).hour:02d}:00–{last.hour:02d}:00"
+        if len(wet) <= 3:
+            verdict, reason = "SHOWERS", f"Some rain between {span}, dry otherwise"
+        else:
+            verdict, reason = "RAIN", f"Wet day: rain on and off {span}"
+
+    temps = [r["temperature_2m"] for _, r in rows if r["temperature_2m"] is not None]
+    feels = [r["apparent_temperature"] for _, r in rows if r["apparent_temperature"] is not None]
+    windiest = max(rows, key=lambda tr: tr[1]["wind_speed_10m"] or 0)[1]
+    gust = max((r["wind_gusts_10m"] or 0) for _, r in rows)
+    nl, en = dutch_word([r for _, r in rows])
+    return base | {
+        "verdict": verdict,
+        "reason": reason,
+        "word": {"nl": nl, "en": en},
+        "summary": {
+            "rain_mm": round(total, 1),
+            "rain_hours": len(wet),
+            "temp_max": round(max(temps)) if temps else None,
+            "feels_min": round(min(feels)) if feels else None,
+            "wind_kmh": round(windiest["wind_speed_10m"] or 0),
+            "wind_from": round(windiest["wind_direction_10m"] or 0),
+            "gust_kmh": round(gust),
+        },
+    }

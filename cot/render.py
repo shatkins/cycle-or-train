@@ -201,7 +201,69 @@ def summarise(trips):
     return (rain, rain_bad), (wind, wind_bad, windy["wind_from"]), (temp, cold_bad)
 
 
+def footer(draw, d):
+    sm = font("Inter-Regular", 15)
+    foot = []
+    if d["ns"].get("note"):
+        foot.append(d["ns"]["note"])
+    if d.get("word"):
+        foot.append(f"Dutch: {d['word']['nl']} ({d['word']['en']})")
+    if d.get("lead_days", 0) > 1:
+        foot.append("Early forecast")
+    gen = dt.datetime.fromisoformat(d["generated"])
+    foot.append(f"Updated {gen.strftime('%a %H:%M')}")
+    for i, line in enumerate(reversed(foot[-3:])):
+        draw.text((W - 28, 458 - i * 20), line, font=sm, fill=BLACK, anchor="ra")
+
+
+def finish(img, rotate_180):
+    out = img.point(lambda v: 255 if v > 140 else 0).convert("1", dither=Image.Dither.NONE)
+    return out.rotate(180) if rotate_180 else out
+
+
+def render_weekend(d: dict, rotate_180: bool = False) -> Image.Image:
+    """Weekend: no commute, just the day's weather at home."""
+    img = Image.new("L", (W, H), WHITE)
+    draw = ImageDraw.Draw(img)
+
+    day = dt.date.fromisoformat(d["date"])
+    head = f"{day:%A} {day.day} {day:%B}"
+    if d["when"] in ("Today", "Tomorrow"):
+        head = f"{d['when']}  ·  {head}"
+    hb = font("Inter-Bold", 24)
+    draw.text((28, 20), head, font=hb, fill=BLACK)
+    draw.text((28 + draw.textlength(head, font=hb) + 22, 23), d["place"], font=font("Inter-Medium", 20), fill=BLACK)
+
+    left_w = 452
+    vf = fit(draw, d["verdict"], "InterDisplay-Black", 168, left_w)
+    draw.text((24, 52), d["verdict"], font=vf, fill=BLACK)
+    y = 52 + int(vf.size * 1.02) + 6
+    rf = font("Inter-Medium", 22)
+    for line in wrap(draw, d["reason"], rf, left_w, max_lines=2):
+        draw.text((30, y), line, font=rf, fill=BLACK)
+        y += 28
+
+    s = d.get("summary")
+    x0, x1, top, h, gap = 496, 772, 60, 106, 10
+    if s:
+        wet = s["rain_hours"] > 0
+        rain_val = "DRY" if not wet else f"{s['rain_mm']} mm"
+        rain_sub = "all day" if not wet else f"{s['rain_hours']} wet hour{'s' if s['rain_hours'] != 1 else ''}"
+        tile(draw, (x0, top, x1, top + h), "RAIN", rain_val, rain_sub, wet)
+        tile(draw, (x0, top + h + gap, x1, top + 2 * h + gap), f"WIND  from {compass(s['wind_from'])}",
+             f"{s['wind_kmh']} km/h", f"gusts {s['gust_kmh']}", s["gust_kmh"] >= 60, wind_from=s["wind_from"])
+        temp = f"{s['temp_max']}°" if s["temp_max"] is not None else "–"
+        tile(draw, (x0, top + 2 * (h + gap), x1, top + 3 * h + 2 * gap), "TEMP", temp,
+             f"max · feels {s['feels_min']}° at coldest", False)
+
+    rain_strip(draw, 28, 386, 440, 52, d["strip"], [], 270, d["date"])
+    footer(draw, d)
+    return finish(img, rotate_180)
+
+
 def render(d: dict, rotate_180: bool = False, legs: dict | None = None) -> Image.Image:
+    if d.get("mode") == "weekend":
+        return render_weekend(d, rotate_180)
     legs = legs or {}
     img = Image.new("L", (W, H), WHITE)
     draw = ImageDraw.Draw(img)
@@ -257,21 +319,8 @@ def render(d: dict, rotate_180: bool = False, legs: dict | None = None) -> Image
     # Bottom: rain strip + footer
     wf = d["trips"][0].get("wind_from", 270)
     rain_strip(draw, 28, 386, 440, 52, d["strip"], d["trips"], wf, d["date"])
-    sm = font("Inter-Regular", 15)
-    foot = []
-    if d["ns"].get("note"):
-        foot.append(d["ns"]["note"])
-    if d.get("word"):
-        foot.append(f"Dutch: {d['word']['nl']} ({d['word']['en']})")
-    if d.get("lead_days", 0) > 1:
-        foot.append("Early forecast")
-    gen = dt.datetime.fromisoformat(d["generated"])
-    foot.append(f"Updated {gen.strftime('%a %H:%M')}")
-    for i, line in enumerate(reversed(foot[-3:])):
-        draw.text((W - 28, 458 - i * 20), line, font=sm, fill=BLACK, anchor="ra")
-
-    out = img.point(lambda v: 255 if v > 140 else 0).convert("1", dither=Image.Dither.NONE)
-    return out.rotate(180) if rotate_180 else out
+    footer(draw, d)
+    return finish(img, rotate_180)
 
 
 def to_framebuffer(img: Image.Image) -> bytes:

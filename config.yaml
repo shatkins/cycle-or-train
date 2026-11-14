@@ -20,7 +20,7 @@ commute:
   leave_morning: "07:00"
   leave_evening: "17:30"
   ride_minutes: 60          # how long the ride takes, used as the weather window
-  workdays: [mon, tue, wed, thu, fri]
+  workdays: [mon, tue, wed, thu, fri]   # commute days; other days get the weekend screen
 
 # Limits. Breaking any one of these on either trip means TRAIN.
 rules:
@@ -37,7 +37,9 @@ display:
   # route_ride: ""
   # route_train: ""
   rotate_180: false             # flip if the image shows upside down on the device
-  dutch_word: true              # show the Dutch word for the day's weather
+  dutch_word: true
+  weekend_screen: true          # non-commute days: just "will it rain at home?"
+  weekend_hours: [8, 20]        # the part of the day the weekend screen looks at              # show the Dutch word for the day's weather
   timezone: Europe/Amsterdam
 
 forecast:

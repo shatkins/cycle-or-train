@@ -155,6 +155,8 @@ Everything lives in `config.yaml`. Edit it, push, and the next run uses it.
 | `ice_below_c` | 1 | Any precipitation at or below this = ice risk |
 | `leave_evening` | 17:30 | **Set this to your real time** |
 | `route_ride` / `route_train` | off | Optional line under the big word |
+| `weekend_screen` | true | Non-commute days show DRY / SHOWERS / RAIN for home instead of RIDE / TRAIN |
+| `weekend_hours` | [8, 20] | The hours the weekend screen looks at |
 
 Screens: **RIDE**, **TRAIN** (rain, cold or ice), **TRAIN + TOO WINDY** (dry, but wind breaks a limit), **STORM**, **YOUR CALL** (train weather, but the trains are disrupted) and **NO DATA**.
 

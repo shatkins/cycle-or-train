@@ -144,6 +144,27 @@ size_t download(uint8_t* fb, size_t size, int& httpCode) {
   return got;
 }
 
+// ---- Battery -----------------------------------------------------------------
+// The X4 Classic's fuel-gauge chip can report 0% until it has learned the battery.
+// When that happens, estimate from the voltage instead (typical Li-ion curve).
+uint16_t batteryPercent(BatteryMonitor& bat) {
+  const uint16_t gauge = bat.readPercentage();
+  const uint16_t mv = bat.readMillivolts();
+  if (gauge > 0 || mv < 3000) return gauge;  // trust the gauge, or no reading at all
+  // {millivolts, percent} points, highest first
+  static const uint16_t curve[][2] = {{4180, 100}, {4060, 90}, {3980, 80}, {3920, 70}, {3870, 60},
+                                       {3830, 50}, {3790, 40}, {3750, 30}, {3710, 20}, {3650, 10},
+                                       {3500, 5},   {3300, 0}};
+  if (mv >= curve[0][0]) return 100;
+  for (size_t i = 1; i < sizeof(curve) / sizeof(curve[0]); ++i) {
+    if (mv >= curve[i][0]) {
+      const uint16_t hiV = curve[i - 1][0], hiP = curve[i - 1][1], loV = curve[i][0], loP = curve[i][1];
+      return loP + (mv - loV) * (hiP - loP) / (hiV - loV);
+    }
+  }
+  return 0;
+}
+
 // ---- Drawing -----------------------------------------------------------------
 void drawBattery(FrameCanvas& c, uint16_t percent) {
   // Top-right corner; the server leaves this area blank for us.
@@ -160,7 +181,7 @@ void drawBattery(FrameCanvas& c, uint16_t percent) {
   }
 }
 
-void drawStats(FrameCanvas& c, const Fetch& f, const BatteryMonitor& bat, esp_sleep_wakeup_cause_t wake, time_t nextWake) {
+void drawStats(FrameCanvas& c, const Fetch& f, BatteryMonitor& bat, esp_sleep_wakeup_cause_t wake, time_t nextWake) {
   display->clearScreen(0xFF);
   c.setTextColor(1);
   c.setTextSize(3);
@@ -180,7 +201,7 @@ void drawStats(FrameCanvas& c, const Fetch& f, const BatteryMonitor& bat, esp_sl
   };
   snprintf(line, sizeof line, "%lu", static_cast<unsigned long>(bootCount)); row("Boots", line);
   row("Woke by", wakeReasonName(wake));
-  snprintf(line, sizeof line, "%u%%  (%u mV)", bat.readPercentage(), bat.readMillivolts()); row("Battery", line);
+  snprintf(line, sizeof line, "%u%%  (%u mV)", batteryPercent(bat), bat.readMillivolts()); row("Battery", line);
   if (f.wifi) {
     snprintf(line, sizeof line, "%s  %d dBm  %s", WIFI_SSID, f.rssi, WiFi.localIP().toString().c_str());
   } else {
@@ -316,7 +337,7 @@ void setup() {
   }
 
   if (ok) {
-    drawBattery(canvas, battery.readPercentage());
+    drawBattery(canvas, batteryPercent(battery));
     display->displayBuffer(EInkDisplay::FULL_REFRESH);
   }
   // On failure the panel keeps showing the last good picture: e-ink needs no power to hold it.

@@ -34,10 +34,14 @@ def main() -> int:
 
     raw = json.loads(Path(args.fixture).read_text(encoding="utf-8")) if args.fixture else weather.fetch(cfg)
     raw = raw if isinstance(raw, list) else [raw]
-    hourly = weather.merge_hourly(raw)
+    hourly = weather.merge_hourly(raw)  # worst of home + work, for the commute
 
-    ns_check = None if (args.no_ns or args.fixture) else (lambda t, reverse=False: ns.check(cfg, t, reverse=reverse))
-    d = decide.decide(cfg, hourly, now, ns_check)
+    day, is_weekend = decide.screen_day(cfg, now)
+    if is_weekend:
+        d = decide.weekend(cfg, weather.merge_hourly(raw[:1]), now, day)  # home only
+    else:
+        ns_check = None if (args.no_ns or args.fixture) else (lambda t, reverse=False: ns.check(cfg, t, reverse=reverse))
+        d = decide.decide(cfg, hourly, now, ns_check, day=day)
     if not cfg["display"].get("dutch_word", True):
         d["word"] = None
 
