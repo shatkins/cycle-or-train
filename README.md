@@ -123,8 +123,8 @@ A *secret* gets passed to the workflow without ever appearing in the code or the
 4. **Build and upload.** Plug the X4 in with a USB-C *data* cable and press the power button to wake it, then:
    ```powershell
    cd firmware
-   pio run                 # compile only, to check that everything builds
-   pio run -t upload       # compile + flash
+   pio run                 # compile only (X4 Classic is the default)
+   pio run -t upload       # compile + flash; for the original X4 use: pio run -e x4 -t upload
    pio device monitor      # watch the log; Ctrl+C to quit
    ```
    The first build downloads the ESP32 toolchain and takes a few minutes. Windows 10 and 11 recognise the X4 over USB without extra drivers. If upload says it can't find the port, run `pio device list` and send me the output. The log should end with something like `boot=1 wake=power on wifi=1 http=200 bytes=48000`.

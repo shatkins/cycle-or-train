@@ -1,7 +1,7 @@
-// Cycle or train — Xteink X4 firmware.
+// Cycle or train — Xteink X4 / X4 Classic firmware.
 //
 // The device is deliberately dumb. Every wake it:
-//   1. keeps itself powered (GPIO13 battery latch),
+//   1. keeps itself powered (battery latch: GPIO13 on the X4, GPIO1 rail on the X4 Classic),
 //   2. joins wifi and sets the clock over NTP,
 //   3. downloads dashboard.bin — 48 000 bytes, exactly one screen of pixels,
 //   4. draws a battery icon on top and refreshes the e-ink panel,
@@ -28,10 +28,26 @@
 #define DISPLAY_ROTATE_180 0
 #endif
 
-// ---- Pins (Xteink X4, from the FreeInk board profile) ----------------------
-constexpr int8_t EPD_SCLK = 8, EPD_MOSI = 10, EPD_CS = 21, EPD_DC = 4, EPD_RST = 5, EPD_BUSY = 6;
+// ---- Board ---------------------------------------------------------------------
+// The build environment (platformio.ini) picks the model. All pins come from the
+// FreeInk board profile, so this file has no pin numbers of its own.
+#if FREEINK_DEVICE_X4CLASSIC
+constexpr auto BOARD = BoardConfig::Board::XteinkX4Classic;  // ESP32-S3
+constexpr int8_t SPI_MISO = -1;                              // panel bus has no MISO
+#else
+constexpr auto BOARD = BoardConfig::Board::XteinkX4;  // ESP32-C3
 constexpr int8_t SPI_MISO = 7;
-constexpr gpio_num_t BATTERY_LATCH = GPIO_NUM_13;  // HIGH = stay powered from the battery
+#endif
+
+// Pin that must stay HIGH for the device to stay powered from its battery.
+// X4: GPIO13 (the trap from the blog post). X4 Classic: GPIO1, the master power rail.
+gpio_num_t batteryLatch() {
+#if FREEINK_DEVICE_X4CLASSIC
+  return static_cast<gpio_num_t>(BoardConfig::ACTIVE.power.latch0);
+#else
+  return GPIO_NUM_13;
+#endif
+}
 
 // ---- Schedule ----------------------------------------------------------------
 constexpr int WAKE_HOURS[] = {4, 18};                              // local time
@@ -44,7 +60,7 @@ constexpr int MAX_RETRIES = 3;
 RTC_DATA_ATTR uint32_t bootCount = 0;
 RTC_DATA_ATTR uint8_t failedAttempts = 0;
 
-EInkDisplay display(EPD_SCLK, EPD_MOSI, EPD_CS, EPD_DC, EPD_RST, EPD_BUSY);
+EInkDisplay* display = nullptr;  // created in setup(), once the board profile is selected
 
 // Adafruit GFX drawing straight into the display framebuffer.
 // Framebuffer layout: 1 bit per pixel, 100 bytes per row, bit set = white.
@@ -145,7 +161,7 @@ void drawBattery(FrameCanvas& c, uint16_t percent) {
 }
 
 void drawStats(FrameCanvas& c, const Fetch& f, const BatteryMonitor& bat, esp_sleep_wakeup_cause_t wake, time_t nextWake) {
-  display.clearScreen(0xFF);
+  display->clearScreen(0xFF);
   c.setTextColor(1);
   c.setTextSize(3);
   c.setCursor(30, 30);
@@ -182,7 +198,7 @@ void drawStats(FrameCanvas& c, const Fetch& f, const BatteryMonitor& bat, esp_sl
     snprintf(line, sizeof line, "in %u min", static_cast<unsigned>(RETRY_SECONDS / 60));
   }
   row("Next update", line);
-  row("Panel", display.getControllerName());
+  row("Panel", display->getControllerName());
   snprintf(line, sizeof line, "%u", failedAttempts); row("Failed tries", line);
 }
 
@@ -209,16 +225,17 @@ uint64_t secondsUntilNextSlot(time_t now, time_t& when) {
 }
 
 [[noreturn]] void sleepFor(uint64_t seconds) {
-  display.deepSleep();
+  display->deepSleep();
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
 
-  // The trap from the blog post: stock firmware drops GPIO13 before sleeping,
-  // which cuts the battery — so the timer can never wake us. Hold it HIGH.
-  gpio_hold_dis(BATTERY_LATCH);
-  gpio_set_direction(BATTERY_LATCH, GPIO_MODE_OUTPUT);
-  gpio_set_level(BATTERY_LATCH, 1);
-  gpio_hold_en(BATTERY_LATCH);
+  // The trap from the blog post: stock firmware drops the battery latch before
+  // sleeping, which cuts the power — so the timer can never wake us. Hold it HIGH.
+  const gpio_num_t latch = batteryLatch();
+  gpio_hold_dis(latch);
+  gpio_set_direction(latch, GPIO_MODE_OUTPUT);
+  gpio_set_level(latch, 1);
+  gpio_hold_en(latch);
 
   esp_sleep_enable_timer_wakeup(seconds * 1000000ULL);
   freeink::PowerManager::waitForPowerButtonRelease();
@@ -231,26 +248,33 @@ uint64_t secondsUntilNextSlot(time_t now, time_t& when) {
 
 // ---- Main ----------------------------------------------------------------------
 void setup() {
-  // Latch power first, before anything slow can happen.
-  gpio_hold_dis(BATTERY_LATCH);
-  pinMode(BATTERY_LATCH, OUTPUT);
-  digitalWrite(BATTERY_LATCH, HIGH);
+#if !FREEINK_DEVICE_X4CLASSIC
+  // X4: latch power first, before anything slow can happen.
+  gpio_hold_dis(GPIO_NUM_13);
+  pinMode(13, OUTPUT);
+  digitalWrite(13, HIGH);
+#endif
+
+  // Select the board profile. This also drives the board's power latch HIGH
+  // (holdPowerRails), which is what keeps the X4 Classic on.
+  BoardConfig::selectDevice(BOARD);
 
   Serial.begin(115200);
   ++bootCount;
   const esp_sleep_wakeup_cause_t wake = esp_sleep_get_wakeup_cause();
   const bool showStats = wake != ESP_SLEEP_WAKEUP_TIMER;
 
-  // Board + panel bring-up. Some X4 batches use a different panel controller;
-  // applyXteinkDisplayController() detects that and picks the right driver.
-  BoardConfig::selectDevice(BoardConfig::Board::XteinkX4);
+  // Panel bring-up. Xteink batches use different panel controllers (SSD1677,
+  // UC8179, UC8279); applyXteinkDisplayController() asks the panel which one it is.
   freeink::applyXteinkDisplayController();
-  SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
-  display.begin();
+  const auto& pins = BoardConfig::ACTIVE.display;
+  SPI.begin(pins.sclk, SPI_MISO, pins.mosi, pins.cs);
+  display = new EInkDisplay(pins.sclk, pins.mosi, pins.cs, pins.dc, pins.rst, pins.busy);
+  display->begin();
 
   BatteryMonitor battery;
-  uint8_t* fb = display.getFrameBuffer();
-  const size_t fbSize = display.getBufferSize();
+  uint8_t* fb = display->getFrameBuffer();
+  const size_t fbSize = display->getBufferSize();
   FrameCanvas canvas(fb);
   canvas.setRotation(DISPLAY_ROTATE_180 ? 2 : 0);
 
@@ -282,7 +306,7 @@ void setup() {
     if (saved) memcpy(saved, fb, fbSize);
     canvas.setRotation(0);
     drawStats(canvas, f, battery, wake, nextWake);
-    display.displayBuffer(EInkDisplay::FULL_REFRESH);
+    display->displayBuffer(EInkDisplay::FULL_REFRESH);
     delay(8000);
     canvas.setRotation(DISPLAY_ROTATE_180 ? 2 : 0);
     if (saved) {
@@ -293,7 +317,7 @@ void setup() {
 
   if (ok) {
     drawBattery(canvas, battery.readPercentage());
-    display.displayBuffer(EInkDisplay::FULL_REFRESH);
+    display->displayBuffer(EInkDisplay::FULL_REFRESH);
   }
   // On failure the panel keeps showing the last good picture: e-ink needs no power to hold it.
 

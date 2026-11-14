@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import time
 
 import requests
 
@@ -30,10 +31,19 @@ def fetch(cfg: dict) -> dict:
         "wind_speed_unit": "kmh",
         "forecast_days": 4,
     }
-    r = requests.get(API, params=params, timeout=30)
-    r.raise_for_status()
-    data = r.json()
-    return data if isinstance(data, list) else [data]
+    # Weather services sometimes hiccup. Try 4 times, waiting a bit longer each time.
+    for attempt in range(4):
+        try:
+            r = requests.get(API, params=params, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+            return data if isinstance(data, list) else [data]
+        except requests.RequestException as e:
+            if attempt == 3:
+                raise  # give up: the run fails and the previous dashboard stays online
+            wait = 15 * (attempt + 1)
+            print(f"Open-Meteo attempt {attempt + 1} failed ({type(e).__name__}), retrying in {wait}s")
+            time.sleep(wait)
 
 
 def merge_hourly(raw: list) -> dict[dt.datetime, dict]:

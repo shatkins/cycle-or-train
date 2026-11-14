@@ -133,12 +133,36 @@ MODE = {"CYCLE": "RIDE", "TRAIN": "TRAIN", "TOO WINDY": "TRAIN", "STORM": "STORM
 BANNER = {"TOO WINDY": "TOO WINDY", "YOUR CALL": "TRAINS DISRUPTED", "STORM": "STAY HOME?"}
 
 
-def tile(draw, box, label, value, sub, bad):
+COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+
+
+def compass(deg: float) -> str:
+    return COMPASS[round(deg / 45) % 8]
+
+
+def dial(draw, cx, cy, r, wind_from, fg, bg):
+    """Map-style wind dial: N at the top, arrow points where the wind blows TO."""
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=fg, width=3)
+    draw.text((cx, cy - r - 2), "N", font=font("Inter-Bold", 14), fill=fg, anchor="mb")
+    a = math.radians((wind_from + 180) % 360)
+    dx, dy = math.sin(a), -math.cos(a)
+    tip = (cx + dx * (r - 5), cy + dy * (r - 5))
+    tail = (cx - dx * (r - 5), cy - dy * (r - 5))
+    draw.line([tail, tip], fill=fg, width=4)
+    for side in (-1, 1):
+        b = a + side * math.radians(150)
+        draw.line([tip, (tip[0] + math.sin(b) * 12, tip[1] - math.cos(b) * 12)], fill=fg, width=4)
+
+
+def tile(draw, box, label, value, sub, bad, wind_from=None):
     """A big status box. Black when it's the reason not to ride."""
     x0, y0, x1, y1 = box
     fg, bg = (WHITE, BLACK) if bad else (BLACK, WHITE)
     draw.rectangle(box, fill=bg, outline=BLACK, width=3)
     draw.text((x0 + 14, y0 + 10), label, font=font("Inter-Bold", 18), fill=fg)
+    if wind_from is not None:
+        dial(draw, x1 - 42, (y0 + y1) // 2 + 4, 26, wind_from, fg, bg)
+        x1 -= 80  # keep text clear of the dial
     vf = fit(draw, value, "InterDisplay-Black", 46, x1 - x0 - 28)
     draw.text((x0 + 14, y0 + 30), value, font=vf, fill=fg)
     if sub:
@@ -174,7 +198,7 @@ def summarise(trips):
     cold_bad = any("cold" in t["flags"] for t in ok)
     ice = any("ice risk" in t["problems"] for t in ok)
     temp = (f"{cold['feels_c']}°", "ICE RISK" if ice else f"feels like, {cold['name'].lower()}")
-    return (rain, rain_bad), (wind, wind_bad), (temp, cold_bad)
+    return (rain, rain_bad), (wind, wind_bad, windy["wind_from"]), (temp, cold_bad)
 
 
 def render(d: dict, rotate_180: bool = False, legs: dict | None = None) -> Image.Image:
@@ -188,6 +212,9 @@ def render(d: dict, rotate_180: bool = False, legs: dict | None = None) -> Image
     if d["when"] in ("Today", "Tomorrow"):
         head = f"{d['when']}  ·  {head}"
     draw.text((28, 20), head, font=font("Inter-Bold", 24), fill=BLACK)
+    hb = font("Inter-Bold", 24)
+    times = f"Out {d['trips'][0]['time']} · Back {d['trips'][1]['time']}"
+    draw.text((28 + draw.textlength(head, font=hb) + 22, 23), times, font=font("Inter-Medium", 20), fill=BLACK)
     # Top-right 100x40 is left blank: the device draws its battery icon there.
 
     # Left: mode word, route, reason
@@ -219,15 +246,13 @@ def render(d: dict, rotate_180: bool = False, legs: dict | None = None) -> Image
 
     # Right: three big tiles
     s = summarise(d["trips"])
-    x0, x1, top, h, gap = 496, 772, 60, 104, 10
+    x0, x1, top, h, gap = 496, 772, 60, 106, 10
     if s:
-        (rain, rb), (wind, wb), (temp, cb) = s
+        (rain, rb), (wind, wb, wdir), (temp, cb) = s
         tile(draw, (x0, top, x1, top + h), "RAIN", rain[0], rain[1], rb)
-        tile(draw, (x0, top + h + gap, x1, top + 2 * h + gap), "WIND", wind[0], wind[1], wb)
+        tile(draw, (x0, top + h + gap, x1, top + 2 * h + gap), f"WIND  from {compass(wdir)}",
+             wind[0], wind[1], wb, wind_from=wdir)
         tile(draw, (x0, top + 2 * (h + gap), x1, top + 3 * h + 2 * gap), "TEMP", temp[0], temp[1], cb)
-        times = f"Out {d['trips'][0]['time']}  ·  Back {d['trips'][1]['time']}"
-        draw.text(((x0 + x1) / 2, top + 3 * h + 2 * gap + 10), times, font=font("Inter-Medium", 17),
-                  fill=BLACK, anchor="mt")
 
     # Bottom: rain strip + footer
     wf = d["trips"][0].get("wind_from", 270)
@@ -237,13 +262,13 @@ def render(d: dict, rotate_180: bool = False, legs: dict | None = None) -> Image
     if d["ns"].get("note"):
         foot.append(d["ns"]["note"])
     if d.get("word"):
-        foot.append(f"{d['word']['nl']} = {d['word']['en']}")
+        foot.append(f"Dutch: {d['word']['nl']} ({d['word']['en']})")
     if d.get("lead_days", 0) > 1:
         foot.append("Early forecast")
     gen = dt.datetime.fromisoformat(d["generated"])
     foot.append(f"Updated {gen.strftime('%a %H:%M')}")
     for i, line in enumerate(reversed(foot[-3:])):
-        draw.text((W - 28, 456 - i * 20), line, font=sm, fill=BLACK, anchor="ra")
+        draw.text((W - 28, 458 - i * 20), line, font=sm, fill=BLACK, anchor="ra")
 
     out = img.point(lambda v: 255 if v > 140 else 0).convert("1", dither=Image.Dither.NONE)
     return out.rotate(180) if rotate_180 else out

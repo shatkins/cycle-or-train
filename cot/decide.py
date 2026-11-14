@@ -243,11 +243,13 @@ def _reason(verdict: str, trips: list[dict], ns: dict) -> str:
         if len(bad) == 2 and summary(bad[0]) == summary(bad[1]):
             return f"{summary(bad[0]).capitalize()} both ways"
         return "; ".join(f"{summary(t)} on the way {t['name'].lower()}" for t in bad).capitalize()
+    wet = max(t.get("rain_mm", 0) for t in trips)
+    sky = "Dry" if wet < 0.05 else "Only drizzle"
     tail = [t for t in trips if t.get("headwind_kmh", 0) <= -10]
     if tail:
         t = tail[0]
-        return f"Dry, with a {-t['headwind_kmh']} km/h tailwind on the way {t['name'].lower()}"
+        return f"{sky}, with a {-t['headwind_kmh']} km/h tailwind on the way {t['name'].lower()}"
     worst = max(trips, key=lambda t: t.get("headwind_kmh", 0))
     if worst.get("headwind_kmh", 0) >= 12:
-        return f"Dry, but {worst['headwind_kmh']} km/h headwind on the way {worst['name'].lower()}"
-    return "Dry both ways, light wind"
+        return f"{sky}, but {worst['headwind_kmh']} km/h headwind on the way {worst['name'].lower()}"
+    return f"{sky} both ways, light wind"
