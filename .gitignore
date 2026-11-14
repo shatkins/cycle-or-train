@@ -5,3 +5,4 @@ firmware/include/secrets.h
 samples.png
 .venv/
 .venv/
+.pytest_cache/
