@@ -5,7 +5,7 @@
 //   2. joins wifi and sets the clock over NTP,
 //   3. downloads dashboard.bin — 48 000 bytes, exactly one screen of pixels,
 //   4. draws a battery icon on top and refreshes the e-ink panel,
-//   5. sleeps until the next 04:00 or 18:00.
+//   5. sleeps until the next wake time (04:00, 06:15, 18:00).
 // Pressing the power button wakes it early and shows a status screen first.
 
 #include <Adafruit_GFX.h>
@@ -50,7 +50,8 @@ gpio_num_t batteryLatch() {
 }
 
 // ---- Schedule ----------------------------------------------------------------
-constexpr int WAKE_HOURS[] = {4, 18};                              // local time
+struct WakeTime { int hour, minute; };
+constexpr WakeTime WAKE_TIMES[] = {{4, 0}, {6, 15}, {18, 0}};      // local time
 constexpr char TZ_AMSTERDAM[] = "CET-1CEST,M3.5.0,M10.5.0/3";      // handles summer time
 constexpr uint64_t RETRY_SECONDS = 20 * 60;                        // after a failed download
 constexpr uint64_t NO_CLOCK_SECONDS = 6 * 3600;                    // if NTP failed too
@@ -224,17 +225,17 @@ void drawStats(FrameCanvas& c, const Fetch& f, BatteryMonitor& bat, esp_sleep_wa
 }
 
 // ---- Scheduling ----------------------------------------------------------------
-// Seconds until the next WAKE_HOURS slot, at least 5 minutes away.
+// Seconds until the next WAKE_TIMES slot, at least 5 minutes away.
 uint64_t secondsUntilNextSlot(time_t now, time_t& when) {
   struct tm t;
   localtime_r(&now, &t);
   time_t best = 0;
   for (int day = 0; day < 2 && !best; ++day) {
-    for (int h : WAKE_HOURS) {
+    for (const WakeTime& w : WAKE_TIMES) {
       struct tm c = t;
       c.tm_mday += day;
-      c.tm_hour = h;
-      c.tm_min = 0;
+      c.tm_hour = w.hour;
+      c.tm_min = w.minute;
       c.tm_sec = 0;
       c.tm_isdst = -1;
       const time_t cand = mktime(&c);
