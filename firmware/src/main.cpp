@@ -51,7 +51,7 @@ gpio_num_t batteryLatch() {
 
 // ---- Schedule ----------------------------------------------------------------
 struct WakeTime { int hour, minute; };
-constexpr WakeTime WAKE_TIMES[] = {{4, 0}, {6, 15}, {18, 0}};      // local time
+constexpr WakeTime WAKE_TIMES[] = {{4, 0}, {6, 00}, {18, 0}};      // local time
 constexpr char TZ_AMSTERDAM[] = "CET-1CEST,M3.5.0,M10.5.0/3";      // handles summer time
 constexpr uint64_t RETRY_SECONDS = 20 * 60;                        // after a failed download
 constexpr uint64_t NO_CLOCK_SECONDS = 6 * 3600;                    // if NTP failed too
